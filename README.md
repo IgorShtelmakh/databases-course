@@ -10,6 +10,8 @@
 - Клієнт бази даних: **DBeaver Community Edition**.
 - Формат звіту: Markdown.
 
+Для курсового проєкту використовуйте [покрокову інструкцію на AdonisJS, AdminJS та MySQL](course_project/instructions_nodejs.md).
+
 ### Результати навчання
 
 Після виконання робіт студент умітиме:
