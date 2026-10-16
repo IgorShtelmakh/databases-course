@@ -13,7 +13,6 @@
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit",
     "setup:env": "node scripts/setup_env.mjs",
-    "admin:password": "node scripts/create_admin_hash.mjs",
     "db:migrate": "node ace migration:run",
     "db:seed": "node ace db:seed --files=database/seeders/demo_seeder.ts"
   },

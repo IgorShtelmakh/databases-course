@@ -87,10 +87,6 @@ mysql --version
 
 У номері версії на кшталт `6.21.0` перше число називають **major**. Перехід на інший major може вимагати змін у коді. Позначення `latest` означає актуальну версію пакета, яка не обов’язково сумісна з рештою нашого стека.
 
-**Чому тут AdonisJS 6, а не `latest`:** перевірений `@adminjs/adonis` 1.1.1 декларує `@adonisjs/core ^6.2.2`, `@adonisjs/lucid ^21.0.1` і `@adonisjs/session ^7.1.1`. Не змішуйте ці приклади з генератором нового major AdonisJS. Гілки залежностей зафіксовані командами нижче, точні версії встановлених пакетів — у вашому `package-lock.json`. Номер major генератора `create-adonisjs` не дорівнює major фреймворку.
-
-Джерела: [залежності інтеграції](https://github.com/SoftwareBrothers/adminjs-adonis/blob/main/package.json), [налаштування AdminJS для Adonis](https://docs.adminjs.co/installation/plugins/adonis). Перевірено 14 жовтня 2026 року.
-
 Усі наступні файлові шляхи, крім першої команди, задані відносно каталогу нового застосунку `course_project/store_nodejs`.
 
 З кореня цього репозиторію виконайте:
@@ -176,7 +172,7 @@ GRANT ALL PRIVILEGES ON course_store_node.*
 
 У нашій конфігурації **host** — адреса сервера, а **port** — номер, за яким на цій адресі доступна певна служба. `127.0.0.1` означає цей самий комп’ютер. `HOST` і `PORT` налаштовують вебзастосунок (`3333`), а `DB_HOST` і `DB_PORT` — підключення до MySQL (`3306`). Це два різні серверні процеси.
 
-`DB_DATABASE` — назва бази, `DB_USER` і `DB_PASSWORD` — облікові дані MySQL. Вони відрізняються від `ADMIN_EMAIL` та пароля працівника. `NODE_ENV=development` задає режим розробки, `LOG_LEVEL=info` — рівень повідомлень у журналі, `TZ=UTC` — часовий пояс процесу. `SESSION_DRIVER=cookie` обирає спосіб зберігання сесії; його розглянемо в розділі 9.
+`DB_DATABASE` — назва бази, `DB_USER` і `DB_PASSWORD` — облікові дані MySQL. Вони відрізняються від `ADMIN_EMAIL` та пароля працівника. `NODE_ENV=development` задає режим розробки, `LOG_LEVEL=info` — рівень повідомлень у журналі, `TZ=UTC` — часовий пояс процесу. Сесії зберігаємо в cookie; їх розглянемо в розділі 9.
 
 Залиште `APP_KEY`, згенерований раніше. Решту відповідних змінних налаштуйте так:
 
@@ -191,67 +187,34 @@ DB_PORT=3306
 DB_USER=course_node
 DB_PASSWORD=ReplaceThisLocalPassword!
 DB_DATABASE=course_store_node
-SESSION_DRIVER=cookie
 ADMIN_EMAIL=admin@example.test
 ```
 
-### 4.3. Створення хешу пароля
+### 4.3. Пароль адміністратора
 
-**Хешування пароля** обчислює значення для перевірки пароля без зберігання його відкритого тексту. Під час входу застосунок повторює обчислення для введеного пароля й порівнює результат зі збереженим. Це не шифрування з можливістю розшифрувати пароль. Тут використовуємо `scrypt`, призначений для такого обчислення.
+Для локальної курсової роботи зберігаємо пароль безпосередньо в `.env`. Додайте:
 
-**Сіль (salt)** — випадкове значення, додане до обчислення: однакові паролі з різними солями мають різні результати. Сіль можна зберігати поруч із хешем. Сам хеш також не слід публікувати: за ним можна намагатися підібрати пароль.
-
-Створіть каталог `scripts` і файл `scripts/create_admin_hash.mjs`. Це звичайний Node.js-скрипт, він працює незалежно від валідації `start/env.ts`:
-
-```js
-import { readFileSync, writeFileSync } from 'node:fs'
-import { randomBytes, scryptSync } from 'node:crypto'
-import { createInterface } from 'node:readline/promises'
-
-const prompt = createInterface({ input: process.stdin, output: process.stdout })
-try {
-  const password = await prompt.question('Новий пароль адміністратора (ввід видимий): ')
-  if (password.length < 12) {
-    throw new Error('Використайте пароль щонайменше з 12 символів')
-  }
-  const salt = randomBytes(16).toString('hex')
-  const digest = scryptSync(password, salt, 64).toString('hex')
-  const line = `ADMIN_PASSWORD_HASH=${salt}:${digest}`
-  const current = readFileSync('.env', 'utf8')
-  const next = /^ADMIN_PASSWORD_HASH=.*$/m.test(current)
-    ? current.replace(/^ADMIN_PASSWORD_HASH=.*$/m, line)
-    : `${current.trimEnd()}\n${line}\n`
-  writeFileSync('.env', next)
-  console.log('Хеш записано в .env')
-} finally {
-  prompt.close()
-}
+```env
+ADMIN_PASSWORD=CourseAdmin2026!
 ```
 
-Виконайте з кореня застосунку:
+Під час входу застосунок порівняє введені email і пароль зі значеннями `ADMIN_EMAIL` та `ADMIN_PASSWORD`. Для зміни пароля відредагуйте `.env` і перезапустіть сервер. Окремий скрипт генерації не потрібен.
 
-```bash
-node scripts/create_admin_hash.mjs
-```
+Це навчальне спрощення: пароль зберігається відкритим текстом. Не додавайте `.env` до Git і не використовуйте свій справжній пароль від інших сервісів. Перед публікацією застосунку потрібно реалізувати хешування паролів.
 
-Запам’ятайте пароль. До `.env` потрапляє лише хеш із випадковою сіллю; сам пароль не є аргументом shell-команди. Далі зареєструємо ці змінні у схемі середовища.
+### 4.4. Завантаження налаштувань
 
-### 4.4. Валідація середовища
-
-**Валідація** — перевірка, що значення відповідає заданим вимогам. У `.env` значення записані текстом; схема `start/env.ts` перевіряє наявність потрібних змінних і приводить їх до очікуваних типів, наприклад номер порту — до числа. Помилку конфігурації краще виявити при старті, ніж під час першого запиту користувача. `env.get('DB_PORT')` далі читає перевірене значення.
-
-До наявного об’єкта схеми в `start/env.ts` додайте відсутні поля. Якщо конфігуратор уже додав DB-поля та `SESSION_DRIVER`, не дублюйте їх:
+Замініть вміст `start/env.ts` на:
 
 ```ts
-DB_HOST: Env.schema.string({ format: 'host' }),
-DB_PORT: Env.schema.number(),
-DB_USER: Env.schema.string(),
-DB_PASSWORD: Env.schema.string(),
-DB_DATABASE: Env.schema.string(),
-SESSION_DRIVER: Env.schema.enum(['cookie'] as const),
-ADMIN_EMAIL: Env.schema.string(),
-ADMIN_PASSWORD_HASH: Env.schema.string(),
+import { Env } from '@adonisjs/core/env'
+
+export default await Env.create(new URL('../', import.meta.url), {})
 ```
+
+Цей файл завантажує `.env` без окремої схеми перевірки. `env.get('DB_HOST')` читає значення налаштування. Значення є текстом, тому порт MySQL у конфігурації нижче перетворюємо на число через `Number(...)`.
+
+У `config/session.ts` задайте `store: 'cookie'` і приберіть імпорт `env`, якщо він більше не використовується. Для цієї роботи спосіб зберігання сесії фіксований.
 
 ### 4.5. `config/database.ts`
 
@@ -268,7 +231,7 @@ export default defineConfig({
       client: 'mysql2',
       connection: {
         host: env.get('DB_HOST'),
-        port: env.get('DB_PORT'),
+        port: Number(env.get('DB_PORT', '3306')),
         user: env.get('DB_USER'),
         password: env.get('DB_PASSWORD'),
         database: env.get('DB_DATABASE'),
@@ -816,7 +779,6 @@ node ace db:seed --files=database/seeders/demo_seeder.ts
 Повністю замініть небезпечний демонстраційний провайдер, який повертає користувача без перевірки пароля:
 
 ```ts
-import { scryptSync, timingSafeEqual } from 'node:crypto'
 import { DefaultAuthProvider } from 'adminjs'
 import env from '#start/env'
 import componentLoader from './component_loader.js'
@@ -825,16 +787,7 @@ export default new DefaultAuthProvider({
   componentLoader,
   authenticate: async ({ email, password }) => {
     if (typeof email !== 'string' || typeof password !== 'string') return null
-    if (password.length > 256) return null
-
-    const [salt, stored] = env.get('ADMIN_PASSWORD_HASH').split(':')
-    if (!/^[a-f0-9]{32}$/.test(salt ?? '') || !/^[a-f0-9]{128}$/.test(stored ?? '')) {
-      throw new Error('Некоректний ADMIN_PASSWORD_HASH: запустіть скрипт генерації')
-    }
-    const actual = scryptSync(password, salt, 64)
-    const expected = Buffer.from(stored, 'hex')
-    const validPassword = timingSafeEqual(actual, expected)
-    if (!validPassword || email !== env.get('ADMIN_EMAIL')) return null
+    if (email !== env.get('ADMIN_EMAIL') || password !== env.get('ADMIN_PASSWORD')) return null
 
     return { email, title: 'Адміністратор магазину' }
   },
@@ -990,7 +943,7 @@ npm run typecheck
 npm run dev
 ```
 
-Відкрийте <http://127.0.0.1:3333/admin>. Введіть `ADMIN_EMAIL` і пароль, з якого створювали хеш. Перша збірка клієнтських компонентів може тривати довше наступних запусків.
+Відкрийте <http://127.0.0.1:3333/admin>. Введіть `ADMIN_EMAIL` і пароль із `ADMIN_PASSWORD`. Перша збірка клієнтських компонентів може тривати довше наступних запусків.
 
 Перевірте:
 
@@ -1603,7 +1556,7 @@ export default class extends BaseSchema {
 | Симптом | Що перевірити |
 |---|---|
 | Конфлікт peer dependencies | AdonisJS 6, Lucid 21, Session 7; чи не взято новий starter через `latest` |
-| `Missing environment variable` | Усі поля `start/env.ts` мають відповідні значення `.env`; хеш уже згенеровано |
+| Налаштування не завантажуються | Файл `.env` у корені застосунку, правильні назви змінних і перезапуск сервера |
 | `Access denied for user` | DB_USER, пароль, host і права саме на `course_store_node` |
 | `ECONNREFUSED` | MySQL запущений, правильні host і port |
 | `Table ... doesn't exist` при запуску AdminJS | Міграція застосована до тієї самої БД; не реєструйте ресурси раніше таблиць |
@@ -1611,7 +1564,7 @@ export default class extends BaseSchema {
 | Ресурси порожні чи немає частини полів | Модель імпортована, поля мають `@column`, адаптер увімкнений; перезапустіть сервер |
 | Немає списку вибору FK | `reference` дорівнює назві таблиці зареєстрованого ресурсу |
 | Вхід працює з будь-яким паролем | Залишився стандартний `app/admin/auth.ts`; замініть його розділом 9 |
-| Після входу знову login | Session middleware, `SESSION_DRIVER=cookie`, APP_KEY, один hostname |
+| Після входу знову login | Session middleware, `store: 'cookie'` у `config/session.ts`, APP_KEY, один hostname |
 | CHECK/FK помилка у формі | Звірте значення з бізнес-правилами, потім прочитайте повідомлення сервера |
 | Звіт повертає порожній список | Є замовлення з позиціями; зменште `min_total` до `0` |
 
@@ -1648,7 +1601,6 @@ store_nodejs/
   database/
     migrations/
     seeders/demo_seeder.ts
-  scripts/create_admin_hash.mjs
   start/
     env.ts
     kernel.ts
@@ -1659,7 +1611,7 @@ store_nodejs/
   package-lock.json
 ```
 
-Додайте до `.env.example` назви потрібних змінних, але залиште паролі, `APP_KEY` і `ADMIN_PASSWORD_HASH` порожніми. `.env`, `node_modules`, `build` та згенеровані файли `.adminjs` не включайте до Git. Перевірте `.gitignore`.
+Додайте до `.env.example` назви потрібних змінних, але залиште паролі, `APP_KEY` і `ADMIN_PASSWORD` порожніми. `.env`, `node_modules`, `build` та згенеровані файли `.adminjs` не включайте до Git. Перевірте `.gitignore`.
 
 У пояснювальній записці послідовно опишіть предметну область та аналоги, постановку задачі, вибір AdonisJS/AdminJS і MySQL, ER-модель та нормалізацію, словник даних, реалізацію обмежень, запити, інтерфейс, результати перевірок і висновки.
 
@@ -1671,8 +1623,8 @@ store_nodejs/
 2. Виконати `npm ci` у каталозі застосунку.
 3. Створити порожню БД і користувача за розділом 4.
 4. Скопіювати `.env.example` у `.env`, заповнити DB-параметри й `ADMIN_EMAIL`.
-5. Виконати `node scripts/create_admin_hash.mjs`.
-6. Якщо валідація вимагає непорожній APP_KEY до `generate:key`, створити його незалежно від Ace командою `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"` і записати результат у `.env`. Потім за потреби виконати `node ace generate:key`.
+5. Записати пароль для входу в `ADMIN_PASSWORD` у `.env`.
+6. Створити APP_KEY командою `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"` і записати результат у `.env`.
 7. Виконати `node ace migration:run`, потім `node ace db:seed --files=database/seeders/demo_seeder.ts`.
 8. Виконати `npm run typecheck`, `npm run build` та `npm run dev`.
 9. Увійти, створити замовлення й відкрити звіт.
