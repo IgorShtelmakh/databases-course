@@ -1,0 +1,13 @@
+{% extends "store/base.html" %}
+{% block title %}SQL-звіт замовлень{% endblock %}
+{% block content %}
+<h1>Суми замовлень</h1>
+<form method="get">{{ form.as_p }}<button type="submit">Показати</button></form>
+<p>До 100 замовлень, від найбільшої суми. Скасовані замовлення не враховуються. Це вартість товарів, а не сума отриманих платежів.</p>
+<table>
+  <thead><tr><th>№</th><th>Клієнт</th><th>Статус</th><th>Створено (UTC)</th><th>Сума, грн</th></tr></thead>
+  <tbody>{% for row in rows %}
+    <tr><td>{{ row.id }}</td><td>{{ row.full_name }}</td><td>{{ row.status }}</td><td>{{ row.created_at }}</td><td>{{ row.total|floatformat:2 }}</td></tr>
+  {% empty %}<tr><td colspan="5">Немає результатів.</td></tr>{% endfor %}</tbody>
+</table>
+{% endblock %}

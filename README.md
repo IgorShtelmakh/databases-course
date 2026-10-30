@@ -10,7 +10,7 @@
 - Клієнт бази даних: **DBeaver Community Edition**.
 - Формат звіту: Markdown.
 
-Для курсового проєкту використовуйте [покрокову інструкцію на AdonisJS, AdminJS та MySQL](course_project/instructions_nodejs.md).
+Для курсового проєкту оберіть покрокову інструкцію: [AdonisJS, AdminJS та MySQL](course_project/instructions_nodejs.md) або [Django та MySQL](course_project/instructions_django.md). Обидва приклади використовують предметну область інтернет-магазину.
 
 ### Результати навчання
 

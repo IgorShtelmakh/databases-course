@@ -1,0 +1,6 @@
+{% extends "admin/change_list.html" %}
+{% block object-tools-items %}
+  {% if perms.store.add_order %}<li><a href="{% url 'store:order_create' %}">Створити замовлення</a></li>{% endif %}
+  {% if perms.store.view_order %}<li><a href="{% url 'store:order_report' %}">SQL-звіт</a></li>{% endif %}
+  {{ block.super }}
+{% endblock %}

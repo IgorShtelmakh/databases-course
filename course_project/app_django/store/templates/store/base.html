@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Магазин{% endblock %}</title>
+  <style>
+    body { font: 18px/1.5 system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+    nav { display: flex; gap: 1rem; flex-wrap: wrap; }
+    table { border-collapse: collapse; width: 100%; }
+    td, th { border: 1px solid #bbb; padding: .5rem; text-align: left; }
+    fieldset { margin: 1rem 0; } input, select, button { font: inherit; max-width: 100%; }
+    .errorlist { color: #a00; } .messages { background: #edf6ed; padding: 1rem 2rem; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="{% url 'admin:index' %}">Адмінпанель</a>
+    <a href="{% url 'store:order_create' %}">Нове замовлення</a>
+    <a href="{% url 'store:order_report' %}">SQL-звіт</a>
+  </nav>
+  {% if messages %}<ul class="messages">{% for message in messages %}<li>{{ message }}</li>{% endfor %}</ul>{% endif %}
+  {% block content %}{% endblock %}
+</body>
+</html>

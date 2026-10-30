@@ -1,0 +1,16 @@
+{% extends "store/base.html" %}
+{% block title %}Нове замовлення{% endblock %}
+{% block content %}
+<h1>Нове замовлення</h1>
+<p>Заповніть від однієї до трьох позицій. Зайві рядки залиште порожніми. Ціну візьмемо з каталогу.</p>
+<form method="post">
+  {% csrf_token %}
+  {{ form.as_p }}
+  {{ formset.management_form }}
+  {{ formset.non_form_errors }}
+  {% for item_form in formset %}
+    <fieldset><legend>Позиція {{ forloop.counter }}</legend>{{ item_form.as_p }}</fieldset>
+  {% endfor %}
+  <button type="submit">Створити замовлення</button>
+</form>
+{% endblock %}
