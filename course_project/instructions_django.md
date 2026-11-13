@@ -12,7 +12,7 @@
 
 **Advanced level — за бажанням:** окремий сервіс оформлення замовлення з транзакцією, перевіркою правил і автоматичною фіксацією ціни; власна вебформа як інтерфейс до цього сервісу. SQL-звіт на окремій сторінці також є додатковим розширенням.
 
-Для базового рівня виконайте розділи **1–9**, потім **12–16**. Розділ **10** містить завдання Advanced level, розділ **11** — додаткову практику ORM і вебзвіту. Їх можна пропустити, не втрачаючи можливості запустити адмінпанель.
+Для базового рівня послідовно виконайте розділи **1–10**: після створення адмінпанелі одразу запустіть проєкт і попрацюйте з нею. Потім перейдіть до перевірки та здачі в розділах **13–16**. Розділ **11** містить завдання Advanced level, розділ **12** — додаткову практику ORM і вебзвіту. Їх можна пропустити, не втрачаючи можливості запустити адмінпанель.
 
 ## 1. Що саме ми створюємо
 
@@ -343,7 +343,7 @@ erDiagram
 
 Саме оголошення класу або створення об’єкта `Product(...)` ще не додає рядок у MySQL. Для запису потрібна операція збереження. Так само зміна опису поля в Python не змінює автоматично структуру вже створеної таблиці — для цього потрібні міграції.
 
-Створіть сім файлів за зразком:
+Створіть у `store/models/` сім файлів моделей і `__init__.py`. Повний вміст кожного файла наведено нижче:
 
 | Файл | На що звернути увагу |
 |---|---|
@@ -355,7 +355,7 @@ erDiagram
 | [`models/order_item.py`](app_django/store/models/order_item.py) | Кількість, ціна продажу, унікальна пара |
 | [`models/payment.py`](app_django/store/models/payment.py) | Сума, статус платежу, зв’язок із замовленням |
 
-Розберімо найпростішу модель повністю:
+### 6.1. Категорія — `store/models/category.py`
 
 ```python
 from django.db import models
@@ -376,38 +376,276 @@ class Category(models.Model):
 
 `models.Model` надає класу можливості ORM. `CharField` — короткий текст, `max_length` — його максимальна довжина. `Meta` містить налаштування моделі. `db_table` задає SQL-назву замість стандартної `store_category`. `__str__` визначає зрозумілий підпис у списках вибору.
 
-Приклад зв’язку з `Product`:
+### 6.2. Клієнт — `store/models/customer.py`
 
 ```python
-category = models.ForeignKey(
-    "store.Category", on_delete=models.PROTECT,
-    related_name="products", verbose_name="Категорія",
-)
+from django.db import models
+
+
+class Customer(models.Model):
+    full_name = models.CharField("ПІБ", max_length=150)
+    email = models.EmailField("Email", unique=True)
+    created_at = models.DateTimeField("Створено", auto_now_add=True)
+
+    class Meta:
+        db_table = "customers"
+        verbose_name = "клієнт"
+        verbose_name_plural = "клієнти"
+        ordering = ["full_name"]
+
+    def __str__(self):
+        return self.full_name
 ```
 
-Рядок `"store.Category"` дозволяє послатися на модель без циклічних імпортів. `product.category` повертає категорію, `product.category_id` — її ключ, а `category.products.all()` — товари цієї категорії. `PROTECT` забороняє ORM видаляти категорію, на яку посилаються товари. Це поведінка Django, а не генерація `ON DELETE PROTECT` у MySQL; SQL-видалення додатково обмежують звичайні FK.
+`EmailField` перевіряє формат email під час валідації, а `unique=True` забороняє повтори. `auto_now_add=True` автоматично записує час створення клієнта.
 
-Для ціни потрібні два рівні перевірки:
+### 6.3. Адреса — `store/models/address.py`
 
 ```python
-price = models.DecimalField(
-    "Ціна, грн", max_digits=12, decimal_places=2,
-    validators=[MinValueValidator(Decimal("0.01"))],
-)
+from django.db import models
+
+
+class Address(models.Model):
+    customer = models.ForeignKey(
+        "store.Customer",
+        on_delete=models.PROTECT,
+        related_name="addresses",
+        verbose_name="Клієнт",
+    )
+    city = models.CharField("Місто", max_length=100)
+    street = models.CharField("Вулиця та будинок", max_length=200)
+    postal_code = models.CharField("Поштовий індекс", max_length=20)
+
+    class Meta:
+        db_table = "addresses"
+        verbose_name = "адреса"
+        verbose_name_plural = "адреси"
+
+    def __str__(self):
+        return f"{self.customer} — {self.city}, {self.street}"
 ```
 
-Це до 12 цифр загалом, з яких 2 після крапки. Валідатор допомагає показати людині помилку. У `Meta.constraints` додано обмеження для самої БД:
+Рядок `"store.Customer"` дозволяє послатися на модель без циклічних імпортів. `address.customer` повертає клієнта, `address.customer_id` — його ключ, а `customer.addresses.all()` — адреси клієнта. `PROTECT` забороняє ORM видаляти клієнта, на якого посилаються адреси. Це поведінка Django, а не генерація `ON DELETE PROTECT` у MySQL; SQL-видалення додатково обмежують звичайні FK.
+
+### 6.4. Товар — `store/models/product.py`
 
 ```python
-models.CheckConstraint(
-    condition=models.Q(price__gt=0),
-    name="product_price_positive",
-)
+from decimal import Decimal
+
+from django.core.validators import MinValueValidator
+from django.db import models
+
+
+class Product(models.Model):
+    category = models.ForeignKey(
+        "store.Category",
+        on_delete=models.PROTECT,
+        related_name="products",
+        verbose_name="Категорія",
+    )
+    sku = models.CharField("Артикул", max_length=40, unique=True)
+    name = models.CharField("Назва", max_length=200)
+    price = models.DecimalField(
+        "Ціна, грн",
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+    stock_quantity = models.PositiveIntegerField("Залишок", default=0)
+    is_active = models.BooleanField("Активний", default=True)
+
+    class Meta:
+        db_table = "products"
+        verbose_name = "товар"
+        verbose_name_plural = "товари"
+        ordering = ["name"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(price__gt=0), name="product_price_positive"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.sku})"
 ```
 
-`Q` описує умову, `__gt` означає «більше». `PositiveIntegerField` допускає нуль, тому для кількості позиції додатково потрібен CHECK `quantity > 0`.
+Для ціни передбачено до 12 цифр загалом, з яких 2 після крапки. Валідатор допомагає показати людині помилку, а `CheckConstraint` перевіряє додатну ціну на рівні БД. `Q` описує умову, `__gt` означає «більше». `PositiveIntegerField` допускає нуль, тому залишок може бути нульовим. `category.products.all()` повертає товари категорії.
 
-Обов’язково створіть [`models/__init__.py`](app_django/store/models/__init__.py):
+### 6.5. Замовлення — `store/models/order.py`
+
+```python
+from django.core.exceptions import ValidationError
+from django.db import models
+
+
+class Order(models.Model):
+    class Status(models.TextChoices):
+        NEW = "new", "Нове"
+        PAID = "paid", "Оплачене"
+        SHIPPED = "shipped", "Відправлене"
+        COMPLETED = "completed", "Завершене"
+        CANCELLED = "cancelled", "Скасоване"
+
+    customer = models.ForeignKey(
+        "store.Customer",
+        on_delete=models.PROTECT,
+        related_name="orders",
+        verbose_name="Клієнт",
+    )
+    shipping_address = models.ForeignKey(
+        "store.Address",
+        on_delete=models.PROTECT,
+        related_name="orders",
+        verbose_name="Адреса доставки",
+    )
+    status = models.CharField(
+        "Статус", max_length=20, choices=Status.choices, default=Status.NEW
+    )
+    created_at = models.DateTimeField("Створено", auto_now_add=True)
+
+    class Meta:
+        db_table = "orders"
+        verbose_name = "замовлення"
+        verbose_name_plural = "замовлення"
+        ordering = ["-created_at", "-pk"]
+        indexes = [models.Index(fields=["created_at"], name="orders_created_idx")]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(
+                    status__in=["new", "paid", "shipped", "completed", "cancelled"]
+                ),
+                name="order_status_valid",
+            )
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.shipping_address_id and self.customer_id:
+            from .address import Address
+
+            if not Address.objects.filter(
+                pk=self.shipping_address_id, customer_id=self.customer_id
+            ).exists():
+                raise ValidationError(
+                    {"shipping_address": "Адреса не належить цьому клієнту."}
+                )
+
+    def __str__(self):
+        return f"Замовлення №{self.pk}"
+```
+
+`TextChoices` задає значення статусів і підписи для форми; CHECK обмежує статуси також у БД. Метод `clean()` перевіряє, що адреса доставки належить обраному клієнту. Індекс `orders_created_idx` створюється за датою замовлення. Від’ємний знак у `ordering` задає сортування за спаданням.
+
+### 6.6. Позиція замовлення — `store/models/order_item.py`
+
+```python
+from decimal import Decimal
+
+from django.core.validators import MinValueValidator
+from django.db import models
+
+
+class OrderItem(models.Model):
+    order = models.ForeignKey(
+        "store.Order",
+        on_delete=models.PROTECT,
+        related_name="items",
+        verbose_name="Замовлення",
+    )
+    product = models.ForeignKey(
+        "store.Product",
+        on_delete=models.PROTECT,
+        related_name="order_items",
+        verbose_name="Товар",
+    )
+    quantity = models.PositiveIntegerField(
+        "Кількість", validators=[MinValueValidator(1)]
+    )
+    unit_price = models.DecimalField(
+        "Ціна продажу, грн",
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+
+    class Meta:
+        db_table = "order_items"
+        verbose_name = "позиція замовлення"
+        verbose_name_plural = "позиції замовлень"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["order", "product"], name="order_product_unique"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(quantity__gt=0), name="item_quantity_positive"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(unit_price__gt=0), name="item_price_positive"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.product} × {self.quantity}"
+```
+
+`UniqueConstraint` не дозволяє двічі додати той самий товар до одного замовлення. Для кількості потрібні і валідатор, і CHECK `quantity > 0`, оскільки `PositiveIntegerField` сам по собі допускає нуль. `unit_price` зберігає ціну продажу окремо від поточної ціни товару; у базовій адмінпанелі її вводить працівник. `order.items.all()` повертає позиції замовлення.
+
+### 6.7. Платіж — `store/models/payment.py`
+
+```python
+from decimal import Decimal
+
+from django.core.validators import MinValueValidator
+from django.db import models
+
+
+class Payment(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Очікується"
+        SUCCESSFUL = "successful", "Успішний"
+        FAILED = "failed", "Невдалий"
+        REFUNDED = "refunded", "Повернений"
+
+    order = models.ForeignKey(
+        "store.Order",
+        on_delete=models.PROTECT,
+        related_name="payments",
+        verbose_name="Замовлення",
+    )
+    amount = models.DecimalField(
+        "Сума, грн",
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+    status = models.CharField(
+        "Статус", max_length=20, choices=Status.choices, default=Status.PENDING
+    )
+    created_at = models.DateTimeField("Створено", auto_now_add=True)
+
+    class Meta:
+        db_table = "payments"
+        verbose_name = "платіж"
+        verbose_name_plural = "платежі"
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(amount__gt=0), name="payment_amount_positive"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    status__in=["pending", "successful", "failed", "refunded"]
+                ),
+                name="payment_status_valid",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Платіж №{self.pk}: {self.amount} грн"
+```
+
+Кожен платіж належить замовленню; `order.payments.all()` повертає всі його платежі. Валідатор та CHECK вимагають додатної суми, а окремий CHECK обмежує статуси. Збереження успішного платежу саме по собі не змінює статус замовлення — автоматизацію такого правила в цій моделі не реалізовано.
+
+### 6.8. Експорт моделей — `store/models/__init__.py`
 
 ```python
 from .address import Address
@@ -418,7 +656,15 @@ from .order_item import OrderItem
 from .payment import Payment
 from .product import Product
 
-__all__ = ["Address", "Category", "Customer", "Order", "OrderItem", "Payment", "Product"]
+__all__ = [
+    "Address",
+    "Category",
+    "Customer",
+    "Order",
+    "OrderItem",
+    "Payment",
+    "Product",
+]
 ```
 
 Ці імпорти дозволяють Django знайти класи й дають зручний запис `from store.models import Product`. Порожнього `__init__.py` для пакета моделей недостатньо.
@@ -544,9 +790,64 @@ Django запитає ім’я, email і пароль. Пароль під ча
 
 Для першої перевірки використовуйте superuser. Для звичайного працівника потрібні `is_staff=True` і відповідні дозволи моделей: перегляд, додавання, редагування та видалення. Для вкладених позицій потрібні також дозволи `OrderItem`. В Advanced level власні сторінки перевіряють `view_order` для звіту та `add_order` для оформлення. Ознака `is_staff` сама по собі не надає цих дозволів.
 
-Базова адмінпанель готова. Перейдіть до розділу 12 для запуску; розділи 10–11 можна пропустити.
+Базова адмінпанель готова. Далі запустимо проєкт, увійдемо в панель і створимо перше замовлення.
 
-## 10. Advanced level: сервіс оформлення замовлень
+## 10. Базовий рівень: запуск проєкту та робота з адмінпанеллю
+
+### 10.1. Маршрути та запуск
+
+Команди виконуйте в папці з `manage.py`, з активованим віртуальним середовищем. MySQL має працювати, міграції з розділу 7 — бути застосованими, навчальні дані з розділу 8 — завантаженими, а superuser із розділу 9 — створеним.
+
+Для стандартної адмінпанелі достатньо такого `config/urls.py`:
+
+```python
+from django.contrib import admin
+from django.urls import path
+
+urlpatterns = [
+    path("admin/", admin.site.urls),
+]
+```
+
+Це конфігурація для самостійного проходження базового рівня. Готовий застосунок у репозиторії додатково містить маршрути Advanced level; вони не заважають стандартній панелі та не є обов’язковою частиною роботи.
+
+```bash
+python manage.py check
+python manage.py runserver
+```
+
+Відкрийте `http://127.0.0.1:8000/admin/`. Увійдіть обліковим записом із `createsuperuser`. Власні `store/urls.py`, view, HTML-шаблони та сервіс для цього запуску не потрібні.
+
+`runserver` — локальний сервер розробки. Для зупинки натисніть Ctrl+C.
+
+### 10.2. Як користуватися адмінпанеллю
+
+На головній сторінці відкрийте потрібний розділ: категорії, товари, клієнти, адреси, замовлення або платежі. Натисніть «Додати», заповніть поля та збережіть запис. Для редагування відкрийте запис зі списку, змініть потрібні значення й натисніть «Зберегти». Якщо форма показує помилку, виправте зазначене поле та повторіть збереження.
+
+Якщо створюєте власні дані, дотримуйтеся порядку зв’язків: спочатку категорія й товар, потім клієнт і його адреса, далі замовлення з позиціями та платіж. У списку товарів можна шукати за назвою або SKU та фільтрувати за категорією й активністю. У розділі платежів оберіть замовлення, введіть суму й статус; це запис про платіж у навчальній базі, а не проведення банківської оплати.
+
+Для видалення відкрийте запис і натисніть «Видалити», потім перегляньте сторінку підтвердження. Якщо запис захищений зв’язками, наприклад категорія має товари, панель не дозволить його видалити.
+
+### 10.3. Перше замовлення через Django Admin
+
+1. Перевірте товари та адресу Анни в адмінпанелі.
+2. У розділі «Замовлення» натисніть «Додати».
+3. Оберіть Анну, її адресу та статус «Нове».
+4. У таблиці позицій додайте дві миші з ціною одиниці `1299.00`.
+5. Стандартною кнопкою додайте ще рядок: один адаптер за `899.00`.
+6. Натисніть «Зберегти». Відкрийте замовлення повторно й перевірте позиції.
+
+Ціну продажу в базовому завданні вводять вручну. Контрольна сума:
+
+```text
+2 × 1299,00 + 1 × 899,00 = 3497,00 грн
+```
+
+Перевірте її SQL-запитом із розділу 14.3. Зміна ціни в каталозі сама собою не змінює `unit_price` старої позиції, але базова панель дозволяє працівнику відредагувати цю позицію вручну.
+
+**На цьому основна реалізація базового рівня завершена.** Для перевірки результату та підготовки матеріалів до здачі перейдіть до розділів 13–16. Якщо хочете розширити застосунок, після роботи з базовою панеллю виконайте Advanced level у розділах 11–12. Писати сервіс замовлень для зарахування базової реалізації не потрібно.
+
+## 11. Advanced level: сервіс оформлення замовлень
 
 **Необов’язкове завдання підвищеної складності.** Виконуйте після запуску базової адмінпанелі. Мета — відокремити операцію оформлення від ручного редагування таблиць.
 
@@ -560,15 +861,15 @@ Django запитає ім’я, email і пароль. Пароль під ча
 4. Повертати створене замовлення або зрозумілу помилку.
 5. Мати тест, який імітує збій другої позиції та доводить повний відкат.
 
-Спочатку перевірте сервіс через `python manage.py shell` і тести. Власна вебформа з підрозділу 10.2 — наступний крок, коли сервіс уже працює.
+Спочатку перевірте сервіс через `python manage.py shell` і тести. Власна вебформа з підрозділу 11.2 — наступний крок, коли сервіс уже працює.
 
 Щоб інтерфейс не обходив правила сервісу, після додавання власної форми замініть у `store/admin/__init__.py` імпорт `from .order import OrderAdmin` на `from .advanced_order import OrderAdmin`. Файл [`admin/advanced_order.py`](app_django/store/admin/advanced_order.py) містить варіант панелі із забороною стандартного додавання та редагування позицій. Не імпортуйте обидва варіанти одночасно: це дві альтернативні реєстрації однієї моделі.
 
-Для готового розширення перенесіть також шаблон [`admin/advanced_order_change_list.html`](app_django/store/templates/admin/advanced_order_change_list.html), файли власної форми нижче та вебзвіту з розділу 11. Підключіть [`store/urls.py`](app_django/store/urls.py) через повний [`config/urls.py`](app_django/config/urls.py). Перезапустіть сервер. У списку замовлень з’являться кнопки власного оформлення та звіту.
+Для готового розширення перенесіть також шаблон [`admin/advanced_order_change_list.html`](app_django/store/templates/admin/advanced_order_change_list.html), файли власної форми нижче та вебзвіту з розділу 12. Підключіть [`store/urls.py`](app_django/store/urls.py) через повний [`config/urls.py`](app_django/config/urls.py). Перезапустіть сервер. У списку замовлень з’являться кнопки власного оформлення та звіту.
 
 Якщо реалізуєте лише сервіс без вебформи, залиште базову адмінпанель і явно зазначте: ручний CRUD ще може обходити додаткові правила сервісу.
 
-### 10.1. Сервіс
+### 11.1. Сервіс
 
 **Сервіс** — звичайна Python-функція, у якій зібрано одну операцію предметної області. Ми можемо викликати її з форми, shell або тесту без дублювання правил.
 
@@ -606,7 +907,7 @@ def create_order(*, customer_id, address_id, items):
 
 Ціна не приходить із форми: працівник обирає товар і кількість, а сервіс записує поточну `Product.price` у `OrderItem.unit_price`. Подальша зміна каталогу не перераховує старі замовлення. Ми не зменшуємо залишок — складський облік можна додати як окреме завдання.
 
-### 10.2. Форми, view і шаблон
+### 11.2. Форми, view і шаблон
 
 Створіть:
 
@@ -636,11 +937,11 @@ GET відкриває сторінку. POST надсилає форму. Пі�
 
 `csrf_token` захищає POST-запит від підробки з іншого сайту. `management_form` передає службову кількість форм. Видалення цих рядків зламає коректне надсилання. Докладніше — [formsets Django](https://docs.djangoproject.com/en/5.2/topics/forms/formsets/).
 
-## 11. Додатково: ORM, власний SQL і сторінка звіту
+## 12. Додатково: ORM, власний SQL і сторінка звіту
 
 Цей розділ не є умовою виконання базового завдання. SQL-запити можна виконувати в DBeaver; окрема вебсторінка потрібна лише для розширення.
 
-### 11.1. Одна вибірка двома способами
+### 12.1. Одна вибірка двома способами
 
 Запустіть `python manage.py shell`. Наступні рядки вводьте в Python-консоль, не в DBeaver:
 
@@ -663,7 +964,7 @@ WHERE is_active = TRUE AND price > 1000
 ORDER BY price DESC;
 ```
 
-### 11.2. SQL-звіт
+### 12.2. SQL-звіт
 
 Створіть [`queries/order_report.py`](app_django/store/queries/order_report.py), [`forms/report.py`](app_django/store/forms/report.py), [`views/order_report.py`](app_django/store/views/order_report.py) і [`templates/store/order_report.html`](app_django/store/templates/store/order_report.html).
 
@@ -695,49 +996,6 @@ cursor.execute(sql, [min_total])
 Форма дозволяє невід’ємне десяткове число до двох знаків після крапки. Некоректний фільтр повертає сторінку з помилкою та HTTP 400. HTML-шаблони екранують текст клієнта автоматично — не додавайте `|safe` до даних користувача.
 
 У SQL-звіті час наведено в UTC, як він зберігається в цій конфігурації MySQL; адмінпанель відображає час у `Europe/Kyiv`. У звіті **вартість товарів**, а не фактична виручка. Платежі можуть бути частковими або невдалими. Якщо додасте їх до цього самого JOIN без попереднього агрегування, сума позицій може помилково помножитися на кількість платежів. Для звіту про оплату спочатку окремо підсумуйте позиції та успішні платежі.
-
-## 12. Базовий рівень: маршрути та перший запуск
-
-Для стандартної адмінпанелі достатньо такого `config/urls.py`:
-
-```python
-from django.contrib import admin
-from django.urls import path
-
-urlpatterns = [
-    path("admin/", admin.site.urls),
-]
-```
-
-Це конфігурація для самостійного проходження базового рівня. Готовий застосунок у репозиторії додатково містить маршрути Advanced level; вони не заважають стандартній панелі та не є обов’язковою частиною роботи.
-
-```bash
-python manage.py check
-python manage.py runserver
-```
-
-Відкрийте `http://127.0.0.1:8000/admin/`. Увійдіть обліковим записом із `createsuperuser`. Власні `store/urls.py`, view, HTML-шаблони та сервіс для цього запуску не потрібні.
-
-`runserver` — локальний сервер розробки. Для зупинки натисніть Ctrl+C.
-
-### Перше замовлення через Django Admin
-
-1. Перевірте товари та адресу Анни в адмінпанелі.
-2. У розділі «Замовлення» натисніть «Додати».
-3. Оберіть Анну, її адресу та статус «Нове».
-4. У таблиці позицій додайте дві миші з ціною одиниці `1299.00`.
-5. Стандартною кнопкою додайте ще рядок: один адаптер за `899.00`.
-6. Натисніть «Зберегти». Відкрийте замовлення повторно й перевірте позиції.
-
-Ціну продажу в базовому завданні вводять вручну. Контрольна сума:
-
-```text
-2 × 1299,00 + 1 × 899,00 = 3497,00 грн
-```
-
-Перевірте її SQL-запитом із розділу 14.3. Зміна ціни в каталозі сама собою не змінює `unit_price` старої позиції, але базова панель дозволяє працівнику відредагувати цю позицію вручну.
-
-**На цьому основна реалізація базового рівня завершена.** Далі перевірте результат і підготуйте матеріали до здачі. Писати сервіс замовлень для зарахування базової реалізації не потрібно.
 
 ## 13. Як змінювати схему після запуску
 
