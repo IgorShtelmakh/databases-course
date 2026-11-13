@@ -16,7 +16,7 @@ from store.services.create_order import create_order
 class StoreTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        call_command("seed_demo", verbosity=0)
+        call_command("seed_demo", catalog_only=True, verbosity=0)
         cls.customer = Customer.objects.get(email="anna@example.com")
         cls.address = Address.objects.get(customer=cls.customer)
         cls.mouse = Product.objects.get(sku="ACC-001")
@@ -113,9 +113,9 @@ class StoreTests(TestCase):
     def test_seed_is_repeatable_and_preserves_edits(self):
         self.mouse.price = Decimal("1300.00")
         self.mouse.save()
-        call_command("seed_demo", verbosity=0)
-        self.assertEqual(Product.objects.count(), 2)
-        self.assertEqual(Address.objects.count(), 1)
+        call_command("seed_demo", catalog_only=True, verbosity=0)
+        self.assertEqual(Product.objects.count(), 24)
+        self.assertEqual(Address.objects.count(), 15)
         self.mouse.refresh_from_db()
         self.assertEqual(self.mouse.price, Decimal("1300.00"))
 
@@ -198,3 +198,72 @@ class StoreTests(TestCase):
         self.assertNotContains(
             self.client.get(reverse("admin:store_order_changelist")), "SQL-звіт"
         )
+
+
+class SeedDemoTests(TestCase):
+    def seed(self):
+        from io import StringIO
+        call_command("seed_demo", stdout=StringIO())
+
+    def test_complete_dataset_and_repeat_preserves_edits(self):
+        from store.models import Category
+
+        self.seed()
+        models = (Category, Product, Customer, Address, Order, OrderItem, Payment)
+        counts = [model.objects.count() for model in models]
+        self.assertEqual(counts[:5], [6, 24, 12, 15, 30])
+        self.assertGreater(counts[5], 60)
+        self.assertGreater(counts[6], 30)
+        self.assertEqual(set(Order.objects.values_list("status", flat=True)), set(Order.Status.values))
+        self.assertEqual(set(Payment.objects.values_list("status", flat=True)), set(Payment.Status.values))
+        self.assertTrue(Customer.objects.filter(orders__isnull=True).exists())
+        self.assertTrue(Product.objects.filter(is_active=True, order_items__isnull=True).exists())
+        for order in Order.objects.all():
+            self.assertEqual(order.customer_id, order.shipping_address.customer_id)
+            order.full_clean()
+            total = sum(item.quantity * item.unit_price for item in order.items.all())
+            successful = sum(p.amount for p in order.payments.filter(status=Payment.Status.SUCCESSFUL))
+            if order.status in (Order.Status.PAID, Order.Status.SHIPPED, Order.Status.COMPLETED):
+                self.assertEqual(successful, total)
+            self.assertTrue(all(p.created_at >= order.created_at for p in order.payments.all()))
+        for model in (Product, Customer, Address, OrderItem, Payment):
+            for obj in model.objects.all():
+                obj.full_clean()
+
+        item = OrderItem.objects.first()
+        item.unit_price = Decimal("123.45")
+        item.save()
+        payment = Payment.objects.first()
+        payment.status = Payment.Status.FAILED
+        payment.save()
+        order = item.order
+        order.status = Order.Status.CANCELLED
+        order.save()
+        product = Product.objects.get(sku="ACC-001")
+        product.price = Decimal("1500.00")
+        product.save()
+        self.seed()
+        self.assertEqual([model.objects.count() for model in models], counts)
+        for obj in (item, payment, order, product):
+            obj.refresh_from_db()
+        self.assertEqual(item.unit_price, Decimal("123.45"))
+        self.assertEqual(payment.status, Payment.Status.FAILED)
+        self.assertEqual(order.status, Order.Status.CANCELLED)
+        self.assertEqual(product.price, Decimal("1500.00"))
+
+    def test_failure_rolls_back_seed(self):
+        with patch.object(Payment.objects, "create", side_effect=RuntimeError("seed failure")):
+            with self.assertRaises(RuntimeError):
+                self.seed()
+        self.assertEqual(Product.objects.count(), 0)
+        self.assertEqual(Customer.objects.count(), 0)
+        self.assertEqual(Order.objects.count(), 0)
+
+    def test_catalog_can_be_extended_with_orders(self):
+        from io import StringIO
+        call_command("seed_demo", catalog_only=True, stdout=StringIO())
+        self.assertEqual(Order.objects.count(), 0)
+        self.seed()
+        self.assertEqual(Product.objects.count(), 24)
+        self.assertEqual(Customer.objects.count(), 12)
+        self.assertEqual(Order.objects.count(), 30)
